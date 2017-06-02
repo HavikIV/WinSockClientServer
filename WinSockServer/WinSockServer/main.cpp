@@ -15,7 +15,7 @@
 // Gotta let the linker that the application also needs Ws2_32.lib
 #pragma comment(lib, "Ws2_32.lib")
 
-#define DEFAULT_PORT "27015"
+#define DEFAULT_PORT "1986"
 #define DEFAULT_BUFLEN 512
 
 

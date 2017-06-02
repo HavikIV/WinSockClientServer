@@ -14,7 +14,7 @@
 #pragma comment(lib, "AdvApi32.lib")	// Lets the linker know that the AdvApi.lib is needed
 
 #define DEFAULT_BUFLEN 512
-#define DEFAULT_PORT "27015"
+#define DEFAULT_PORT "1986"
 
 int __cdecl main(int argc, char** argv)	// C type main function, will allow me to pass in the name of the server the client should connect to in the command line
 {
