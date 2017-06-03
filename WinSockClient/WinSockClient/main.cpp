@@ -8,6 +8,8 @@
 #include <IPHlpApi.h>					// Header file that has the IP Helper APIs, if this header file is needed then it must be included after WinSock2.h
 #include <stdlib.h>
 #include <stdio.h>						// Standard input and output; used for printf() function
+#include <iostream>						// Library for cout and cin
+#include <string>
 
 #pragma comment(lib, "Ws2_32.lib")		// lets the linker know that the Ws2_32.lib is needed; WinSock applications need Ws2_32.lib
 #pragma comment(lib, "Mswsock.lib")		// Lets the linker know that the Mswsock.lib is needed
@@ -15,6 +17,8 @@
 
 #define DEFAULT_BUFLEN 512
 #define DEFAULT_PORT "1986"
+
+using namespace std;					// I'm used to not having to type the namespace for cout and cin calls
 
 int __cdecl main(int argc, char** argv)	// C type main function, will allow me to pass in the name of the server the client should connect to in the command line
 {
@@ -72,7 +76,7 @@ int __cdecl main(int argc, char** argv)	// C type main function, will allow me t
 
 	// getaddrinfo function provides protocol-independent translation from an ANSI host name to an address
 	// Resolve the server address and port
-	iResult = getaddrinfo(argv[1], DEFAULT_PORT, &hints, &result);
+	iResult = getaddrinfo("localhost", DEFAULT_PORT, &hints, &result);
 	// Check for errors
 	if (iResult != 0)
 	{
@@ -116,19 +120,48 @@ int __cdecl main(int argc, char** argv)	// C type main function, will allow me t
 		return 1;
 	}
 
-	// Send an initial buffer to the server
-	iResult = send(ConnectSocket, sendbuf, (int)strlen(sendbuf), 0);
-	// Check for errors
-	if (iResult == SOCKET_ERROR)
+	cout << ">> ";
+	int exit = 0;									// Condition for the while loop, 0 = False, 1 = true
+	string temp;
+	// Loop to ask for the User for input and send it to the server so it can echo it back
+	while (!exit)
 	{
-		printf("send failed: %d\n", WSAGetLastError());
-		// Close the socket
-		closesocket(ConnectSocket);
-		WSACleanup();								// Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
-		return 1;
-	}
+		getline(cin, temp);
+		cout << endl;
+		if (temp == "exit")
+		{
+			exit = 1;
+			break;
+		}
 
-	printf("Bytes Sent: %ld\n", iResult);
+		// Send an initial buffer to the server
+		iResult = send(ConnectSocket, temp.c_str(), temp.length() + 1, 0);
+		// Check for errors
+		if (iResult == SOCKET_ERROR)
+		{
+			printf("send failed: %d\n", WSAGetLastError());
+			// Close the socket
+			closesocket(ConnectSocket);
+			WSACleanup();								// Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
+			return 1;
+		}
+
+		printf("Bytes Sent: %ld\n", iResult);
+
+		// Receiving data from the server
+		iResult = recv(ConnectSocket, recvbuf, recvbuflen, 0);
+		if (iResult > 0)
+		{
+			printf("Bytes received: %d\n", iResult);
+			printf("Server: %s\n", recvbuf);
+		}
+		else if (iResult == 0)
+			printf("Connection closed\n");
+		else
+			printf("recv failed: %d\n", WSAGetLastError());
+
+		cout << ">> ";
+	}
 
 	// Shutdown the connection for sending since no more data will be sent
 	// the client can still use the ConnectSocket for receiving data
@@ -142,18 +175,6 @@ int __cdecl main(int argc, char** argv)	// C type main function, will allow me t
 		WSACleanup();								// Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
 		return 1;
 	}
-
-	// Receiving data until the server closes the connection
-	do
-	{
-		iResult = recv(ConnectSocket, recvbuf, recvbuflen, 0);
-		if (iResult > 0)
-			printf("Bytes received: %d\n", iResult);
-		else if (iResult == 0)
-			printf("Connection closed\n");
-		else
-			printf("recv failed: %d\n", WSAGetLastError());
-	} while (iResult > 0);
 
 	// Cleanup
 	closesocket(ConnectSocket);
