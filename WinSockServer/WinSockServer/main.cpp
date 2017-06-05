@@ -11,12 +11,55 @@
 #include <WS2tcpip.h>									//	Definitions for TCP/IP from WinSock 2 Protocol-Specific Annex Document; newer functions and structures used to retrieve IP addresses
 #include <stdlib.h>
 #include <stdio.h>										//	Standard input/output, specifically printf()
+#include <process.h>									//	For multi threading, will make a new thread for each client that connects to the server
 
 // Gotta let the linker that the application also needs Ws2_32.lib
 #pragma comment(lib, "Ws2_32.lib")
 
 #define DEFAULT_PORT "1986"
 #define DEFAULT_BUFLEN 512
+
+unsigned __stdcall ClientSession(void *data)
+{
+	SOCKET clientSocket = (SOCKET)data;
+
+	int iResult, iSendResult;
+	char recvbuf[DEFAULT_BUFLEN];
+	int recvbuflen = DEFAULT_BUFLEN;
+	
+	//process the client
+	//	Receive until the peer shuts down the connection
+	do
+	{
+		iResult = recv(clientSocket, recvbuf, recvbuflen, 0);
+		//	Check for errors
+		if (iResult > 0)
+		{
+			printf("Bytes received: %d\n", iResult);
+
+			//	Echo the buffer back to the sender
+			iSendResult = send(clientSocket, recvbuf, iResult, 0);
+			//	Check for errors
+			if (iSendResult == SOCKET_ERROR)
+			{
+				printf("send failed: %d\n", WSAGetLastError());
+				closesocket(clientSocket);
+				WSACleanup();							//	Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
+				return 1;
+			}
+			printf("Bytes sent; %d\n", iSendResult);
+		}
+		else if (iResult == 0)
+			printf("Connection closin...\n");
+		else
+		{
+			printf("recv failed: %d\n", WSAGetLastError());
+			closesocket(clientSocket);
+			WSACleanup();								//	Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
+			return 1;
+		}
+	} while (iResult > 0);
+}
 
 
 int __cdecl main(void)	
@@ -33,10 +76,7 @@ int __cdecl main(void)
 	//	Declaring an addrinfo object, hints used for providing hints for what Kind of IP address to get, result will be populated by getaddrinfo()
 	struct addrinfo *result = NULL, hints;
 
-	char recvbuf[DEFAULT_BUFLEN];
-	int recvbuflen = DEFAULT_BUFLEN;
 	int iResult;										//	Used to store the returned values from the function calls to check they completed successfully
-	int iSendResult;
 
 	//	Initialize WinSock
 	iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);		//	MAKEWORD(2,2) requests WSAStartup for version 2.2 of WinSock on the system.
@@ -101,64 +141,24 @@ int __cdecl main(void)
 	}
 
 	//	Accept a client socket
-	ClientSocket = accept(ListenSocket, NULL, NULL);
-	//	Check for errors
-	if (ClientSocket == INVALID_SOCKET)
+	while (ClientSocket = accept(ListenSocket, NULL, NULL))
 	{
-		printf("accept failed with error: %d\n", WSAGetLastError());
-		closesocket(ListenSocket);
-		WSACleanup();									//	Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
-		return 1;
-	}
-
-	//	No longer need the server socket as the server is going to deal with client directly instead of passing it to different thread while listening for additional connection
-	//	Next time, try to modify this application so the server does that instead
-	closesocket(ListenSocket);
-
-	//	Receive until the peer shuts down the connection
-	do
-	{
-		iResult = recv(ClientSocket, recvbuf, recvbuflen, 0);
 		//	Check for errors
-		if (iResult > 0)
+		if (ClientSocket == INVALID_SOCKET)
 		{
-			printf("Bytes received: %d\n", iResult);
-
-			//	Echo the buffer back to the sender
-			iSendResult = send(ClientSocket, recvbuf, iResult, 0);
-			//	Check for errors
-			if (iSendResult == SOCKET_ERROR)
-			{
-				printf("send failed: %d\n", WSAGetLastError());
-				closesocket(ClientSocket);
-				WSACleanup();							//	Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
-				return 1;
-			}
-			printf("Bytes sent; %d\n", iSendResult);
-		}
-		else if (iResult == 0)
-			printf("Connection closin...\n");
-		else
-		{
-			printf("recv failed: %d\n", WSAGetLastError());
-			closesocket(ClientSocket);
-			WSACleanup();								//	Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
+			printf("accept failed with error: %d\n", WSAGetLastError());
+			closesocket(ListenSocket);
+			WSACleanup();									//	Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
 			return 1;
 		}
-	} while (iResult > 0);
 
-	//	Shutdown the send half of the connection since no more data will be sent
-	iResult = shutdown(ClientSocket, SD_SEND);
-	//	Check for errors
-	if (iResult == SOCKET_ERROR)
-	{
-		printf("shutdown failed: %d\n", WSAGetLastError());
-		closesocket(ClientSocket);
-		WSACleanup();									//	Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
-		return 1;
+		//	Create a new thread to handle the client
+		unsigned threadID;
+		HANDLE hThread = (HANDLE)_beginthreadex(NULL, 0, &ClientSession, (void*)ClientSocket, 0, &threadID);
 	}
 
 	//	Cleanup
+	closesocket(ListenSocket);
 	closesocket(ClientSocket);
 	WSACleanup();									//	Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
 
