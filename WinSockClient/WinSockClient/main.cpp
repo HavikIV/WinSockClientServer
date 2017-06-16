@@ -76,7 +76,7 @@ int __cdecl main(int argc, char** argv)	// C type main function, will allow me t
 
 	// getaddrinfo function provides protocol-independent translation from an ANSI host name to an address
 	// Resolve the server address and port
-	iResult = getaddrinfo("localhost", DEFAULT_PORT, &hints, &result);
+	iResult = getaddrinfo(argv[1], DEFAULT_PORT, &hints, &result);
 	// Check for errors
 	if (iResult != 0)
 	{
