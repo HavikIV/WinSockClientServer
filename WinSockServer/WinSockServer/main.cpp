@@ -29,7 +29,7 @@ struct Connection
 	char recvbuf[DEFAULT_BUFLEN];
 	int recvbuflen;
 
-	Connection(SOCKET s) : sock(s), recvbuflen(DEFAULT_BUFLEN) {}		//	Constructor with an initialization list for the struct, sets sock to s and recvbuflen to DEFAUL_BUFLEN
+	Connection(SOCKET s) : sock(s), recvbuflen(0) {}		//	Constructor with an initialization list for the struct, sets sock to s and recvbuflen to DEFAUL_BUFLEN
 };
 
 typedef vector<Connection> connectionList;
@@ -252,34 +252,71 @@ bool readData(Connection& conn)
 bool writeData(Connection& conn)
 {
 	//	Send everything in the connection's buffer
-	int bytes = send(conn.sock, conn.recvbuf, conn.recvbuflen, 0);
+	int bytes;
 
-	//	Check for errors
-	if (bytes == SOCKET_ERROR)
+	if (connections.size() > 1)
 	{
-		int err;
-		int errLen = sizeof(err);
-		getsockopt(conn.sock, SOL_SOCKET, SO_ERROR, (char*)&err, &errLen);
-		return (err == WSAEWOULDBLOCK);
-	}
+		//	Instead of echoing the message, send it to all other clients
+		connectionList::iterator it = connections.begin();
+		while (it != connections.end())
+		{
+			if (it->sock != conn.sock)
+			{
+				bytes = send(it->sock, conn.recvbuf, conn.recvbuflen, 0);
 
-	if (bytes == conn.recvbuflen)
-	{
-		//	Everything got sent out on the connection, so reset the recvbuflen to 0
-		//	to prevent that the buffer was cleared.
-		conn.recvbuflen = 0;
+				//	Check for errors
+				if (bytes == SOCKET_ERROR)
+				{
+					int err;
+					int errLen = sizeof(err);
+					getsockopt(conn.sock, SOL_SOCKET, SO_ERROR, (char*)&err, &errLen);
+					return (err == WSAEWOULDBLOCK);
+				}
+
+				if (bytes == conn.recvbuflen)
+				{
+					//	Everything got sent out on the connection, so reset the recvbuflen to 0
+					//	to prevent that the buffer was cleared.
+					conn.recvbuflen = 0;
+				}
+				else
+				{
+					//	Only some of the data in the buffer was sent out, so remove the part that was sent out from the buffer
+					//	for the next time that send() is called on this connection
+					conn.recvbuflen -= bytes;
+					//	memmove(void *dest, const void *src, size_t count)
+					//	dest -> destination object; recvbuf
+					//	src -> source object; recvbuf + bytes
+					//	count -> number of bytes to copy to the destination
+					//	moves the part that wasn't sent out to the front of the buffer for the next time send()is called
+					memmove(conn.recvbuf, conn.recvbuf + bytes, conn.recvbuflen);
+				}
+			}
+
+			it++;
+		}
 	}
 	else
 	{
-		//	Only some of the data in the buffer was sent out, so remove the part that was sent out from the buffer
-		//	for the next time that send() is called on this connection
-		conn.recvbuflen -= bytes;
-		//	memmove(void *dest, const void *src, size_t count)
-		//	dest -> destination object; recvbuf
-		//	src -> source object; recvbuf + bytes
-		//	count -> number of bytes to copy to the destination
-		//	moves the part that wasn't sent out to the front of the buffer for the next time send()is called
-		memmove(conn.recvbuf, conn.recvbuf + bytes, conn.recvbuflen);
+		bytes = send(conn.sock, conn.recvbuf, conn.recvbuflen, 0);	//	Echo the message back
+		if (bytes == conn.recvbuflen)
+		{
+			//	Everything got sent out on the connection, so reset the recvbuflen to 0
+			//	to prevent that the buffer was cleared.
+			conn.recvbuflen = 0;
+		}
+		else
+		{
+			//	Only some of the data in the buffer was sent out, so remove the part that was sent out from the buffer
+			//	for the next time that send() is called on this connection
+			conn.recvbuflen -= bytes;
+			//	memmove(void *dest, const void *src, size_t count)
+			//	dest -> destination object; recvbuf
+			//	src -> source object; recvbuf + bytes
+			//	count -> number of bytes to copy to the destination
+			//	moves the part that wasn't sent out to the front of the buffer for the next time send()is called
+			memmove(conn.recvbuf, conn.recvbuf + bytes, conn.recvbuflen);
+		}
 	}
 
 	return true;
@@ -400,10 +437,14 @@ void acceptConnections(SOCKET listeningSocket)
 						if (err != NO_ERROR)
 						{
 							printf("%ld\n", WSAGetLastError());
-							closesocket(it->sock);
-							connections.erase(it);
-							it = connections.begin();
 						}
+						else
+						{
+							printf("Closed connection from %s:%d, socket %d.\n", inet_ntoa(sinRemote.sin_addr), ntohs(sinRemote.sin_port), it->sock);
+						}
+						closesocket(it->sock);
+						connections.erase(it);
+						it = connections.begin();
 					}
 					else
 					{
