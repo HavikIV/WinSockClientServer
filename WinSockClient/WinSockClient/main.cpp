@@ -119,10 +119,16 @@ int __cdecl main(int argc, char** argv)	// C type main function, will allow me t
 		WSACleanup();								// Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
 		return 1;
 	}
-
-	cout << ">> ";
+	
+	/*string numString = "209-585-8493";
+	printf("%s\n", numString);
+	printf("%s\n", numString.c_str());
+	int bytessent = send(ConnectSocket, numString.c_str(), numString.length() + 1, 0);
+	cout << bytessent << endl;*/
+	cout << "What is your phone number? (###-###-####)>> ";
 	int exit = 0;									// Condition for the while loop, 0 = False, 1 = true
 	string temp;
+	int sendingNumber = 1;
 	// Loop to ask for the User for input and send it to the server so it can echo it back
 	while (!exit)
 	{
@@ -146,21 +152,28 @@ int __cdecl main(int argc, char** argv)	// C type main function, will allow me t
 			return 1;
 		}
 
-		printf("Bytes Sent: %ld\n", iResult);
-
-		// Receiving data from the server
-		iResult = recv(ConnectSocket, recvbuf, recvbuflen, 0);
-		if (iResult > 0)
+		if (!sendingNumber)
 		{
-			printf("Bytes received: %d\n", iResult);
-			printf("Server: %s\n", recvbuf);
-		}
-		else if (iResult == 0)
-			printf("Connection closed\n");
-		else
-			printf("recv failed: %d\n", WSAGetLastError());
+			printf("Bytes Sent: %ld\n", iResult);
 
-		cout << ">> ";
+			// Receiving data from the server
+			iResult = recv(ConnectSocket, recvbuf, recvbuflen, 0);
+			if (iResult > 0)
+			{
+				printf("Bytes received: %d\n", iResult);
+				printf("Server: %s\n", recvbuf);
+			}
+			else if (iResult == 0)
+				printf("Connection closed\n");
+			else
+				printf("recv failed: %d\n", WSAGetLastError());
+		}
+		else
+		{
+			sendingNumber = 0;
+		}
+
+		cout << "TO SEND MSG, TYPE IN PHONE # FOLLOWED BY ' ' & MSG" << endl << ">> ";
 	}
 
 	// Shutdown the connection for sending since no more data will be sent

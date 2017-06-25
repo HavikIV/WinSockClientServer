@@ -7,16 +7,8 @@
 #define WIN32_LEAN_AND_MEAN
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 
-#include <Windows.h>
-#include <WinSock2.h>									//	Has the necessary functions, structures, and definitions needed for socket programming
-#include <WS2tcpip.h>									//	Definitions for TCP/IP from WinSock 2 Protocol-Specific Annex Document; newer functions and structures used to retrieve IP addresses
-#include <stdlib.h>
-#include <stdio.h>										//	Standard input/output, specifically printf()
-#include <process.h>									//	For multi threading, will make a new thread for each client that connects to the server
-#include <vector>										//	Will use to keep track of the multiple clients that connect to the server
-
-// Gotta let the linker that the application also needs Ws2_32.lib
-#pragma comment(lib, "Ws2_32.lib")
+#include "libs.h"
+#include "AddressBook.h"
 
 #define DEFAULT_PORT "1986"
 #define DEFAULT_BUFLEN 512
@@ -32,19 +24,26 @@ struct Connection
 	Connection(SOCKET s) : sock(s), recvbuflen(0) {}		//	Constructor with an initialization list for the struct, sets sock to s and recvbuflen to DEFAUL_BUFLEN
 };
 
-typedef vector<Connection> connectionList;
+//typedef vector<Connection> connectionList;
+//typedef vector<Contact> contactList;
+//
+//connectionList connections;
+//contactList myContacts;
 
-connectionList connections;
+//	Create an Address Book
+AddressBook ab;
 
-void setupFDSETS(fd_set& readFDs, fd_set& writeFDs, fd_set& exceptFDs, SOCKET listeningSocket);
+//void setupFDSETS(fd_set& readFDs, fd_set& writeFDs, fd_set& exceptFDs, SOCKET listeningSocket);
+//
+//bool readData(Contact& conn);
+//
+//bool writeData(Contact& conn);
 
-bool readData(Connection& conn);
-
-bool writeData(Connection& conn);
+string getNumberFromBuffer(Contact& sender);
 
 void acceptConnections(SOCKET listeningSocket);
 
-unsigned __stdcall ClientSession(void *data);
+//unsigned __stdcall ClientSession(void *data);
 
 
 int __cdecl main(void)	
@@ -57,12 +56,12 @@ int __cdecl main(void)
 	SOCKET ListenSocket = INVALID_SOCKET;
 	//	Create a temporary SOCKET object that will be used to connect to a client
 	//SOCKET ClientSocket = INVALID_SOCKET;
-
+	
 	//	Declaring an addrinfo object, hints used for providing hints for what Kind of IP address to get, result will be populated by getaddrinfo()
 	struct addrinfo *result = NULL, hints;
 
 	int iResult;										//	Used to store the returned values from the function calls to check they completed successfully
-	u_long iMode = 1;									//	Will use this to change the socket to be nonblocking
+	//u_long iMode = 1;									//	Will use this to change the socket to be nonblocking
 
 	//	Initialize WinSock
 	iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);		//	MAKEWORD(2,2) requests WSAStartup for version 2.2 of WinSock on the system.
@@ -163,164 +162,167 @@ int __cdecl main(void)
 	return 0;
 }
 
-//	Setup the three FD sets that are used with select() with the sockets in the connection list.
-//	Also add one for the listening socket, if one was passed in to the function
-void setupFDSETS(fd_set& readFDs, fd_set& writeFDs, fd_set& exceptFDs, SOCKET listeningSocket = INVALID_SOCKET)
-{
-	//	FD_ZERO(*set) is a macro that initializes the set to the null set
-	FD_ZERO(&readFDs);
-	FD_ZERO(&writeFDs);
-	FD_ZERO(&exceptFDs);
-
-	//	If a listening socket was passed to the function, add it to the read and except FD sets
-	if (listeningSocket != INVALID_SOCKET)
-	{
-		//	FD_SET(s, *set) is a macro that is used to add socket s to the set provided
-		FD_SET(listeningSocket, &readFDs);
-		FD_SET(listeningSocket, &exceptFDs);
-	}
-
-	//	Add the client connections to the three sets
-
-	connectionList::iterator it = connections.begin();	//	Create an iterator to be used to iterate through the list(vector) of client connections
-	
-	while (it != connections.end())
-	{
-		//	Check to see if there is space in the read buffer, if there is, then pay attention for incoming data
-		if (it->recvbuflen < DEFAULT_BUFLEN)
-		{
-			FD_SET(it->sock, &readFDs);
-		}
-
-		//	Check to see if there's any data in the buffer that still needs to be sent out.
-		if (it->recvbuflen > 0)
-		{
-			FD_SET(it->sock, &writeFDs);
-		}
-
-		//	if the client isn't ready to read incoming data or sent data then add it to the except set
-		FD_SET(it->sock, &exceptFDs);
-
-		//	Increment the iterator
-		it++;
-	}
-}
-
-//	This function will read the data that is coming in the client connection.
-//	It will return FALSE on failure to read or when the client closes its half
-//	of the connection.
-bool readData(Connection& conn)
-{
-	//	Read the incoming data and store the number of bytes received in the variable bytes
-	//	recvbuf + recvbuflen = where to start adding the incoming data in the buffer
-	//	DEFAULT_BUFLEN - recvbuflen = how much space is left in the buffer
-	//	Remember: recv(socket s, char* buf, int len, int flags); len is the size, in bytes, of the buffer,
-	//	and buf is the pointer to the buffer
-	int bytes = recv(conn.sock, conn.recvbuf + conn.recvbuflen, DEFAULT_BUFLEN - conn.recvbuflen, 0);
-
-	//	Check for errors
-	if (bytes == 0)
-	{
-		//	Connection was closed
-		return false;
-	}
-	else if (bytes == SOCKET_ERROR)
-	{
-		//	Something went wrong
-		printf("recv failed: %d\n", bytes);
-		int err;
-		int errLen = sizeof(err);
-		//	getsockopt retrieves a socket option
-		//	getsockopt(SOCKET s, int level, int optname, char *optval, int *optlen)
-		//	level is asking what level the option is defined at. SOL_SOCKET is one such level
-		//	optname is the socket option for which the value is to be retrieved. Must be defined in the provided socket level
-		//	optval is a pointer to a buffer in which the value for the requested option is to be returned
-		//	optlen is a pointer to the size, in bytes, of the optval buffer.
-		getsockopt(conn.sock, SOL_SOCKET, SO_ERROR, (char*)&err, &errLen);
-		return (err == WSAEWOULDBLOCK);
-	}
-
-	//	Successfully read the incoming data so need to record how bytes were read
-	printf("recv() was successful and recieved %d bytes\n", bytes);
-	conn.recvbuflen += bytes;
-
-	return true;
-}
-
-//	The client connection provided is ready to send out data.
-//	Returns FALSE on failure.
-bool writeData(Connection& conn)
-{
-	//	Send everything in the connection's buffer
-	int bytes;
-
-	if (connections.size() > 1)
-	{
-		//	Instead of echoing the message, send it to all other clients
-		connectionList::iterator it = connections.begin();
-		while (it != connections.end())
-		{
-			if (it->sock != conn.sock)
-			{
-				bytes = send(it->sock, conn.recvbuf, conn.recvbuflen, 0);
-
-				//	Check for errors
-				if (bytes == SOCKET_ERROR)
-				{
-					int err;
-					int errLen = sizeof(err);
-					getsockopt(conn.sock, SOL_SOCKET, SO_ERROR, (char*)&err, &errLen);
-					return (err == WSAEWOULDBLOCK);
-				}
-
-				if (bytes == conn.recvbuflen)
-				{
-					//	Everything got sent out on the connection, so reset the recvbuflen to 0
-					//	to prevent that the buffer was cleared.
-					conn.recvbuflen = 0;
-				}
-				else
-				{
-					//	Only some of the data in the buffer was sent out, so remove the part that was sent out from the buffer
-					//	for the next time that send() is called on this connection
-					conn.recvbuflen -= bytes;
-					//	memmove(void *dest, const void *src, size_t count)
-					//	dest -> destination object; recvbuf
-					//	src -> source object; recvbuf + bytes
-					//	count -> number of bytes to copy to the destination
-					//	moves the part that wasn't sent out to the front of the buffer for the next time send()is called
-					memmove(conn.recvbuf, conn.recvbuf + bytes, conn.recvbuflen);
-				}
-			}
-
-			it++;
-		}
-	}
-	else
-	{
-		bytes = send(conn.sock, conn.recvbuf, conn.recvbuflen, 0);	//	Echo the message back
-		if (bytes == conn.recvbuflen)
-		{
-			//	Everything got sent out on the connection, so reset the recvbuflen to 0
-			//	to prevent that the buffer was cleared.
-			conn.recvbuflen = 0;
-		}
-		else
-		{
-			//	Only some of the data in the buffer was sent out, so remove the part that was sent out from the buffer
-			//	for the next time that send() is called on this connection
-			conn.recvbuflen -= bytes;
-			//	memmove(void *dest, const void *src, size_t count)
-			//	dest -> destination object; recvbuf
-			//	src -> source object; recvbuf + bytes
-			//	count -> number of bytes to copy to the destination
-			//	moves the part that wasn't sent out to the front of the buffer for the next time send()is called
-			memmove(conn.recvbuf, conn.recvbuf + bytes, conn.recvbuflen);
-		}
-	}
-
-	return true;
-}
+////	Setup the three FD sets that are used with select() with the sockets in the connection list.
+////	Also add one for the listening socket, if one was passed in to the function
+//void setupFDSETS(fd_set& readFDs, fd_set& writeFDs, fd_set& exceptFDs, SOCKET listeningSocket = INVALID_SOCKET)
+//{
+//	//	FD_ZERO(*set) is a macro that initializes the set to the null set
+//	FD_ZERO(&readFDs);
+//	FD_ZERO(&writeFDs);
+//	FD_ZERO(&exceptFDs);
+//
+//	//	If a listening socket was passed to the function, add it to the read and except FD sets
+//	if (listeningSocket != INVALID_SOCKET)
+//	{
+//		//	FD_SET(s, *set) is a macro that is used to add socket s to the set provided
+//		FD_SET(listeningSocket, &readFDs);
+//		FD_SET(listeningSocket, &exceptFDs);
+//	}
+//
+//	//	Add the client connections to the three sets
+//
+//	//connectionList::iterator it = connections.begin();	//	Create an iterator to be used to iterate through the list(vector) of client connections
+//	contactList::iterator it = myContacts.begin();
+//
+//	while (it != myContacts.end())
+//	{
+//		//	Check to see if there is space in the read buffer, if there is, then pay attention for incoming data
+//		if (it->getMsgSize() < defaultBufferLen)
+//		{
+//			FD_SET(it->socket, &readFDs);
+//		}
+//
+//		//	Check to see if there's any data in the buffer that still needs to be sent out.
+//		if (it->getMsgSize() > 0)
+//		{
+//			FD_SET(it->socket, &writeFDs);
+//		}
+//
+//		//	if the client isn't ready to read incoming data or sent data then add it to the except set
+//		FD_SET(it->socket, &exceptFDs);
+//
+//		//	Increment the iterator
+//		it++;
+//	}
+//}
+//
+////	This function will read the data that is coming in the client connection.
+////	It will return FALSE on failure to read or when the client closes its half
+////	of the connection.
+//bool readData(Contact& conn)
+//{
+//	//	Read the incoming data and store the number of bytes received in the variable bytes
+//	//	recvbuf + recvbuflen = where to start adding the incoming data in the buffer
+//	//	DEFAULT_BUFLEN - recvbuflen = how much space is left in the buffer
+//	//	Remember: recv(socket s, char* buf, int len, int flags); len is the size, in bytes, of the buffer,
+//	//	and buf is the pointer to the buffer
+//	int bytes = recv(conn.socket, &conn.getBuffer() + conn.getMsgSize(), DEFAULT_BUFLEN - conn.getMsgSize(), 0);
+//
+//	//	Check for errors
+//	if (bytes == 0)
+//	{
+//		//	Connection was closed
+//		return false;
+//	}
+//	else if (bytes == SOCKET_ERROR)
+//	{
+//		//	Something went wrong
+//		printf("recv failed: %d\n", bytes);
+//		int err;
+//		int errLen = sizeof(err);
+//		//	getsockopt retrieves a socket option
+//		//	getsockopt(SOCKET s, int level, int optname, char *optval, int *optlen)
+//		//	level is asking what level the option is defined at. SOL_SOCKET is one such level
+//		//	optname is the socket option for which the value is to be retrieved. Must be defined in the provided socket level
+//		//	optval is a pointer to a buffer in which the value for the requested option is to be returned
+//		//	optlen is a pointer to the size, in bytes, of the optval buffer.
+//		getsockopt(conn.socket, SOL_SOCKET, SO_ERROR, (char*)&err, &errLen);
+//		return (err == WSAEWOULDBLOCK);
+//	}
+//
+//	//	Successfully read the incoming data so need to record how bytes were read
+//	printf("recv() was successful and recieved %d bytes\n", bytes);
+//	conn.setMsgSize(bytes);// += bytes;
+//
+//	return true;
+//}
+//
+////	The client connection provided is ready to send out data.
+////	Returns FALSE on failure.
+//bool writeData(Contact& conn)
+//{
+//	//	Send everything in the connection's buffer
+//	int bytes;
+//
+//	if (myContacts.size() > 1)
+//	{
+//		//	Instead of echoing the message, send it to all other clients
+//		//connectionList::iterator it = connections.begin();
+//		contactList::iterator it = myContacts.begin();
+//
+//		while (it != myContacts.end())
+//		{
+//			if (it->socket != conn.socket)
+//			{
+//				bytes = send(it->socket, &conn.getBuffer(), conn.getMsgSize(), 0);
+//
+//				//	Check for errors
+//				if (bytes == SOCKET_ERROR)
+//				{
+//					int err;
+//					int errLen = sizeof(err);
+//					getsockopt(conn.socket, SOL_SOCKET, SO_ERROR, (char*)&err, &errLen);
+//					return (err == WSAEWOULDBLOCK);
+//				}
+//
+//				if (bytes == conn.getMsgSize())
+//				{
+//					//	Everything got sent out on the connection, so reset the recvbuflen to 0
+//					//	to prevent that the buffer was cleared.
+//					conn.setMsgSize(0);// = 0;
+//				}
+//				else
+//				{
+//					//	Only some of the data in the buffer was sent out, so remove the part that was sent out from the buffer
+//					//	for the next time that send() is called on this connection
+//					conn.setMsgSize(-bytes);// -= bytes;
+//					//	memmove(void *dest, const void *src, size_t count)
+//					//	dest -> destination object; recvbuf
+//					//	src -> source object; recvbuf + bytes
+//					//	count -> number of bytes to copy to the destination
+//					//	moves the part that wasn't sent out to the front of the buffer for the next time send()is called
+//					memmove(&conn.getBuffer(), &conn.getBuffer() + bytes, conn.getMsgSize());
+//				}
+//			}
+//
+//			it++;
+//		}
+//	}
+//	else
+//	{
+//		bytes = send(conn.socket, &conn.getBuffer(), conn.getMsgSize(), 0);	//	Echo the message back
+//		if (bytes == conn.getMsgSize())
+//		{
+//			//	Everything got sent out on the connection, so reset the recvbuflen to 0
+//			//	to prevent that the buffer was cleared.
+//			conn.setMsgSize(0);// = 0;
+//		}
+//		else
+//		{
+//			//	Only some of the data in the buffer was sent out, so remove the part that was sent out from the buffer
+//			//	for the next time that send() is called on this connection
+//			conn.setMsgSize(-bytes);// -= bytes;
+//			//	memmove(void *dest, const void *src, size_t count)
+//			//	dest -> destination object; recvbuf
+//			//	src -> source object; recvbuf + bytes
+//			//	count -> number of bytes to copy to the destination
+//			//	moves the part that wasn't sent out to the front of the buffer for the next time send()is called
+//			memmove(&conn.getBuffer(), &conn.getBuffer() + bytes, conn.getMsgSize());
+//		}
+//	}
+//
+//	return true;
+//}
 
 //	This function contains an infinite loop that will accept connections, but if
 //	something breaks, the function will return control back to the caller.
@@ -331,8 +333,15 @@ void acceptConnections(SOCKET listeningSocket)
 
 	while (1)
 	{
+		Contact con;
 		fd_set readFDs, writeFDs, exceptFDs;
-		setupFDSETS(readFDs, writeFDs, exceptFDs, listeningSocket);
+		//setupFDSETS(readFDs, writeFDs, exceptFDs, listeningSocket);
+		ab.setupFDSets(listeningSocket);
+
+		//	References to the FD_SETS in the address book
+		readFDs = ab.getReadFDSet();
+		writeFDs = ab.getWriteFDSet();
+		exceptFDs = ab.getExceptFDSet();
 
 		if (select(0, &readFDs, &writeFDs, &exceptFDs, 0) > 0)
 		{
@@ -352,11 +361,18 @@ void acceptConnections(SOCKET listeningSocket)
 				}
 				else
 				{
+					//Connection temp(sock);
+					//recv(sock, temp.recvbuf, temp.recvbuflen, 0);	// the number of the client here
+					//printf("%s\n", temp.recvbuf);
 					//	accept() was successful, inform the user where the connection was from
 					printf("Accepted connection from %s:%d, socket %d.\n", inet_ntoa(sinRemote.sin_addr), ntohs(sinRemote.sin_port), sock);
 
+					con.setSocket(sock);
+
 					//	Add the connection to the vector of connections
-					connections.push_back(sock);
+					//connections.push_back(sock);
+					ab.addContact(con);
+					//myContacts.push_back(con);
 
 					//	If there are more than 64 sockets, there might be some unexpected problems
 					/*	What are the “64 sockets” limitations?
@@ -376,7 +392,7 @@ void acceptConnections(SOCKET listeningSocket)
 					 *	fd_set structures. You can get around this limitation with threads, just as in the event object case.	
 					 */
 					//	Warn the user of the there being more the 64 sockets, counting the listening socket
-					if ((connections.size() + 1) > 64)
+					if ((ab.getSizeOfAddressBook() + 1) > 64)
 					{
 						printf("WARNING: More than 63 client connections accepted, so there might be some unexcepted problems arising.\n");
 					}
@@ -397,33 +413,39 @@ void acceptConnections(SOCKET listeningSocket)
 			else
 			{
 				//	Check if it was one of the client connections
-				connectionList::iterator it = connections.begin();
-				while (it != connections.end())
+				//connectionList::iterator it = connections.begin();
+				contactList::iterator it = ab.begin();
+				//contactList::iterator it = myContacts.begin();
+
+				while (it != ab.end())
 				{
 					bool ok = true;
 					const char* errorType = 0;
 
 					//	See if this socket's flag is set in any of the FD sets.
-					if (FD_ISSET(it->sock, &exceptFDs))
+					if (FD_ISSET(it->getSocket(), &exceptFDs))
 					{
 						ok = false;
 						errorType = "General socket error";
 						//	FD_CLR(s, *set) is a macro that is used to remove socket s from the set provided
-						FD_CLR(it->sock, &exceptFDs);
+						FD_CLR(it->getSocket(), &exceptFDs);
 					}
 					else
 					{
-						if (FD_ISSET(it->sock, &readFDs))
+						if (FD_ISSET(it->getSocket(), &readFDs))
 						{
-							ok = readData(*it);
+							//ok = readData(*it);
+							ok = ab.recvMsg(*it);
 							errorType = "Read error";
-							FD_CLR(it->sock, &readFDs);
+							FD_CLR(it->getSocket(), &readFDs);
 						}
-						if (FD_ISSET(it->sock, &writeFDs))
+						if (FD_ISSET(it->getSocket(), &writeFDs))
 						{
-							ok = writeData(*it);
+							//ok = writeData(*it);
+							string number = getNumberFromBuffer(*it);
+							ok = ab.sendMsg(*it, *ab.getContact(number));	// echo it back to itself
 							errorType = "Write error";
-							FD_CLR(it->sock, &writeFDs);
+							FD_CLR(it->getSocket(), &writeFDs);
 						}
 					}
 
@@ -433,18 +455,20 @@ void acceptConnections(SOCKET listeningSocket)
 						//	Shutdown the connection and remove it from the list of connections
 						int err;
 						int errLen = sizeof(err);
-						getsockopt(it->sock, SOL_SOCKET, SO_ERROR, (char*)&err, &errLen);
+						getsockopt(it->getSocket(), SOL_SOCKET, SO_ERROR, (char*)&err, &errLen);
 						if (err != NO_ERROR)
 						{
 							printf("%ld\n", WSAGetLastError());
 						}
 						else
 						{
-							printf("Closed connection from %s:%d, socket %d.\n", inet_ntoa(sinRemote.sin_addr), ntohs(sinRemote.sin_port), it->sock);
+							printf("Closed connection from %s:%d, socket %d.\n", inet_ntoa(sinRemote.sin_addr), ntohs(sinRemote.sin_port), it->getSocket());
 						}
-						closesocket(it->sock);
-						connections.erase(it);
-						it = connections.begin();
+						closesocket(it->getSocket());
+						/*connections.erase(it);
+						it = connections.begin();*/
+						ab.removeContact(it->getNumber());
+						it = ab.begin();
 					}
 					else
 					{
@@ -462,47 +486,62 @@ void acceptConnections(SOCKET listeningSocket)
 	}
 }
 
-//	Function that is passed to a different thread for each accepted client connections
-//	This function will handle reading and sending data associated to the client socket
-//	that is passed to the function when the child thread is created.
-unsigned __stdcall ClientSession(void *data)
+string getNumberFromBuffer(Contact& sender)
 {
-	SOCKET clientSocket = (SOCKET)data;
+	//	Get the number from the buffer
+	char str[26];
+	memset(str, 0, 14);
+	strncpy_s(str, &(const char)sender.getBuffer(), 12);
 
-	int iResult, iSendResult;
-	char recvbuf[DEFAULT_BUFLEN];
-	int recvbuflen = DEFAULT_BUFLEN;
+	//	Remove the number from the buffer
+	memmove(&sender.getBuffer(), &sender.getBuffer() + 13, sender.getMsgSize() - 13);
+	sender.setMsgSize(sender.getMsgSize() - 13);
 
-	//process the client
-	//	Receive until the peer shuts down the connection
-	do
-	{
-		iResult = recv(clientSocket, recvbuf, recvbuflen, 0);
-		//	Check for errors
-		if (iResult > 0)
-		{
-			printf("Bytes received: %d\n", iResult);
-
-			//	Echo the buffer back to the sender
-			iSendResult = send(clientSocket, recvbuf, iResult, 0);
-			//	Check for errors
-			if (iSendResult == SOCKET_ERROR)
-			{
-				printf("send failed: %d\n", WSAGetLastError());
-				closesocket(clientSocket);
-				WSACleanup();							//	Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
-				return 1;
-			}
-			printf("Bytes sent; %d\n", iSendResult);
-		}
-		else if (iResult == 0)
-			printf("Connection closin...\n");
-		else
-		{
-			printf("recv failed: %d\n", WSAGetLastError());
-			closesocket(clientSocket);
-			WSACleanup();								//	Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
-			return 1;
-		}
-	} while (iResult > 0);
+	//	Return the number
+	return string(str);
 }
+
+////	Function that is passed to a different thread for each accepted client connections
+////	This function will handle reading and sending data associated to the client socket
+////	that is passed to the function when the child thread is created.
+//unsigned __stdcall ClientSession(void *data)
+//{
+//	SOCKET clientSocket = (SOCKET)data;
+//
+//	int iResult, iSendResult;
+//	char recvbuf[DEFAULT_BUFLEN];
+//	int recvbuflen = DEFAULT_BUFLEN;
+//
+//	//process the client
+//	//	Receive until the peer shuts down the connection
+//	do
+//	{
+//		iResult = recv(clientSocket, recvbuf, recvbuflen, 0);
+//		//	Check for errors
+//		if (iResult > 0)
+//		{
+//			printf("Bytes received: %d\n", iResult);
+//
+//			//	Echo the buffer back to the sender
+//			iSendResult = send(clientSocket, recvbuf, iResult, 0);
+//			//	Check for errors
+//			if (iSendResult == SOCKET_ERROR)
+//			{
+//				printf("send failed: %d\n", WSAGetLastError());
+//				closesocket(clientSocket);
+//				WSACleanup();							//	Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
+//				return 1;
+//			}
+//			printf("Bytes sent; %d\n", iSendResult);
+//		}
+//		else if (iResult == 0)
+//			printf("Connection closin...\n");
+//		else
+//		{
+//			printf("recv failed: %d\n", WSAGetLastError());
+//			closesocket(clientSocket);
+//			WSACleanup();								//	Terminates the use of the WinSock 2 DLL (Ws2_32.sll)
+//			return 1;
+//		}
+//	} while (iResult > 0);
+//}
